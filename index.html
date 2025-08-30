@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>자영업 계산기 모음 – BEP/세금/인건비</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body{background:#f7f8fa}</style>
+</head>
+<body>
+  <div id="root" class="max-w-6xl mx-auto p-4 md:p-8"></div>
+
+  <!-- React 18 UMD + ReactDOM + Babel(JSX) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    // ===== 공통 유틸 =====
+    const {useState, useMemo} = React;
+    const L = {
+      h1: "text-2xl md:text-3xl font-bold tracking-tight",
+      section: "text-lg font-semibold mt-8 mb-3",
+      grid2: "grid grid-cols-1 md:grid-cols-2 gap-3",
+      grid3: "grid grid-cols-1 md:grid-cols-3 gap-3",
+      card: "bg-white rounded-2xl shadow p-4 border border-gray-100",
+      label: "text-sm font-medium",
+      number: "w-full rounded-lg border border-gray-300 px-3 py-2 text-right tabular-nums text-sm focus:outline-none focus:ring-2 focus:ring-blue-500",
+      help: "text-xs text-gray-500",
+      kpi: "text-xl font-semibold tabular-nums",
+      badge: "inline-flex items-center gap-2 text-xs bg-gray-100 rounded-full px-3 py-1",
+      btn: "px-3 py-2 rounded-xl text-sm font-medium border border-gray-300 hover:bg-gray-50",
+      kgrid: "grid grid-cols-1 md:grid-cols-3 gap-4",
+    }
+    const toNumber = (n, f=0)=>{ const v = typeof n==="number"?n:parseFloat(String(n).replace(/[^0-9.-]/g,"")); return Number.isFinite(v)?v:f }
+    const pct = p=>Math.max(0,p)/100
+    const clamp01 = x=>Math.min(1,Math.max(0,x))
+    const fmtKRW = v=>Number.isFinite(v)? v.toLocaleString('ko-KR')+"원" : "-"
+    const fmtInt = v=>Number.isFinite(v)? Math.round(v).toLocaleString('ko-KR') : "-"
+    const fmtPct = v=>Number.isFinite(v)? (v*100).toFixed(1)+"%" : "-"
+
+    // ===== 공통 컴포넌트 =====
+    const Num = ({label,value,onChange,help,min=undefined,max=undefined,step="any"})=> (
+      <div className={L.card}>
+        <label className={L.label}>{label}</label>
+        <input className={L.number} type="number" step={step} min={min} max={max} value={value} onChange={e=>onChange(toNumber(e.target.value))} />
+        {help && <p className={L.help}>{help}</p>}
+      </div>
+    )
+
+    // ===== 1) 주휴수당 계산기 =====
+    function CalcWeeklyHoliday(){
+      const [hourly,setHourly]=useState(9860)
+      const [weeklyHours,setWeeklyHours]=useState(20)
+      const [daysPerWeek,setDays]=useState(5)
+      const eligible = weeklyHours>=15 && daysPerWeek>0
+      const dailyAvg = eligible? weeklyHours/Math.max(1,daysPerWeek) : 0
+      const weeklyHolidayHours = eligible? dailyAvg : 0
+      const weeklyHolidayPay = weeklyHolidayHours*hourly
+      const monthlyEst = weeklyHolidayPay*4.345
+      return (
+        <section>
+          <h3 className={L.section}>주휴수당 계산기</h3>
+          <div className={L.grid3}>
+            <Num label="시급" value={hourly} onChange={setHourly} />
+            <Num label="주 소정근로시간" value={weeklyHours} onChange={setWeeklyHours} />
+            <Num label="주 소정근로일수(일)" value={daysPerWeek} onChange={setDays} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">주휴시간</div><div className={L.kpi}>{fmtInt(weeklyHolidayHours)} 시간</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">주휴수당</div><div className={L.kpi}>{fmtKRW(weeklyHolidayPay)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">월 환산(추정)</div><div className={L.kpi}>{fmtKRW(monthlyEst)}</div><div className="text-xs text-gray-500">4.345주 환산, 15시간 미만은 0</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 2) 최저임금 기준 인건비 계산기 =====
+    function CalcMinWageLabor(){
+      const [hourly,setHourly]=useState(9860)
+      const [weeklyHours,setH]=useState(40)
+      const [days,setD]=useState(5)
+      const eligible = weeklyHours>=15 && days>0
+      const weeklyHolidayHours = eligible? (weeklyHours/Math.max(1,days)) : 0
+      const monthlyHours = (weeklyHours+weeklyHolidayHours)*4.345
+      const basePay = hourly*monthlyHours
+      // 온코스트 가변 입력(기본값은 예시)
+      const [npER,setNpER]=useState(4.5) // 국민연금 근로자분 (%)
+      const [npER2,setNpER2]=useState(4.5) // 사용자분
+      const [hiER,setHiER]=useState(3.545) // 건강 근로자분 예시
+      const [hiER2,setHiER2]=useState(3.545) // 사용자분 예시
+      const [ltcRate,setLtc]=useState(12.81) // 장기요양(건보의 %) 예시
+      const [eiER,setEiER]=useState(0.8) // 고용 근로자분 예시
+      const [eiER2,setEiER2]=useState(1.05) // 고용 사용자분 예시(업종 따라 상이)
+      const empDeduct = basePay*(pct(npER)+pct(hiER)*(1+pct(ltcRate))+pct(eiER))
+      const empOncost = basePay*(pct(npER2)+pct(hiER2)*(1+pct(ltcRate))+pct(eiER2))
+      return (
+        <section>
+          <h3 className={L.section}>최저임금 기준 인건비 계산기</h3>
+          <div className={L.grid3}>
+            <Num label="시급" value={hourly} onChange={setHourly} />
+            <Num label="주 근로시간" value={weeklyHours} onChange={setH} />
+            <Num label="주 근로일수" value={days} onChange={setD} />
+          </div>
+          <div className={L.grid3+" mt-3"}>
+            <Num label="국민연금 근로자 %" value={npER} onChange={setNpER} />
+            <Num label="국민연금 사용자 %" value={npER2} onChange={setNpER2} />
+            <Num label="건강보험 근로자 %" value={hiER} onChange={setHiER} />
+            <Num label="건강보험 사용자 %" value={hiER2} onChange={setHiER2} />
+            <Num label="장기요양(건보의 %)" value={ltcRate} onChange={setLtc} />
+            <Num label="고용보험 근로자 %" value={eiER} onChange={setEiER} />
+            <Num label="고용보험 사용자 %" value={eiER2} onChange={setEiER2} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">월 소정근로시간(주휴 포함)</div><div className={L.kpi}>{fmtInt(monthlyHours)} 시간</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">기본 월급(추정)</div><div className={L.kpi}>{fmtKRW(basePay)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">근로자 공제 + 사용자 부담</div><div className={L.kpi}>{fmtKRW(empDeduct+empOncost)}</div><div className="text-xs text-gray-500">비율은 입력값으로 조정하세요(연도별 변동)</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 3) 퇴직금 계산기(간이) =====
+    function CalcSeverance(){
+      const [avgMonthly,setAvg]=useState(2300000)
+      const [years,setY]=useState(1)
+      const [months,setM]=useState(0)
+      const serviceDays = years*365 + months*30
+      const dailyAvg = avgMonthly/30 // 간이
+      const severance = dailyAvg*30*serviceDays/365
+      return (
+        <section>
+          <h3 className={L.section}>퇴직금 계산기(간이)</h3>
+          <div className={L.grid3}>
+            <Num label="최근 3개월 평균 월급(간이)" value={avgMonthly} onChange={setAvg} />
+            <Num label="근속 연수(년)" value={years} onChange={setY} />
+            <Num label="추가 개월" value={months} onChange={setM} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">평균 일급(간이)</div><div className={L.kpi}>{fmtKRW(dailyAvg)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">퇴직금(추정)</div><div className={L.kpi}>{fmtKRW(severance)}</div><div className="text-xs text-gray-500">정확 계산은 평균임금(최근 3개월 총액/총일수) 기준</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 4) 손익분기점 계산기(요약 버전) =====
+    function CalcBEP(){
+      const [price,setPrice]=useState(10000)
+      const [raw,setRaw]=useState(3000)
+      const [varCost,setVar]=useState(1500)
+      const [fix,setFix]=useState(1000000)
+      const cm = price - raw - varCost
+      const qBEP = cm>0? Math.ceil(fix/cm): Infinity
+      const sBEP = qBEP*price
+      const cmr = price>0? cm/price:0
+      return (
+        <section>
+          <h3 className={L.section}>손익분기점 계산기</h3>
+          <div className={L.grid3}>
+            <Num label="판매단가(부가세 별도)" value={price} onChange={setPrice} />
+            <Num label="원재료비" value={raw} onChange={setRaw} />
+            <Num label="기타 변동비(건당)" value={varCost} onChange={setVar} />
+            <Num label="월 고정비" value={fix} onChange={setFix} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">공헌마진</div><div className={L.kpi}>{fmtKRW(cm)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">CMR</div><div className={L.kpi}>{fmtPct(cmr)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">BEP 수량 / 매출</div><div className={L.kpi}>{fmtInt(qBEP)} 개 / {fmtKRW(sBEP)}</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 5) 마진율 및 가격 책정 =====
+    function CalcMarginPricing(){
+      const [cost,setCost]=useState(3000)
+      const [marginPct,setMP]=useState(40)
+      const [markupPct,setMk]=useState(0)
+      // Price from margin% (on selling price)
+      const priceFromMargin = marginPct>=100? Infinity : cost/(1-pct(marginPct))
+      // Price from markup% (on cost)
+      const priceFromMarkup = cost*(1+pct(markupPct))
+      const marginAtPriceFromMargin = priceFromMargin - cost
+      return (
+        <section>
+          <h3 className={L.section}>마진율 및 가격 책정</h3>
+          <div className={L.grid3}>
+            <Num label="원가" value={cost} onChange={setCost} />
+            <Num label="목표 마진율(판매가 기준 %)" value={marginPct} onChange={setMP} />
+            <Num label="목표 마크업율(원가 기준 %)" value={markupPct} onChange={setMk} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">판매가(마진율 기준)</div><div className={L.kpi}>{fmtKRW(priceFromMargin)}</div><div className="text-xs text-gray-500">판매가 기준 마진율 {marginPct}% 달성 가격</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">판매가(마크업 기준)</div><div className={L.kpi}>{fmtKRW(priceFromMarkup)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">마진액(마진율 기준 가격)</div><div className={L.kpi}>{fmtKRW(marginAtPriceFromMargin)}</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 6) 재고 회전율 및 비용 =====
+    function CalcInventory(){
+      const [cogs,setC]=useState(5000000)
+      const [avgInv,setI]=useState(2000000)
+      const [carryRate,setR]=useState(20)
+      const turnover = avgInv>0? cogs/avgInv : 0
+      const dio = turnover>0? 365/turnover : Infinity
+      const carryCost = avgInv*pct(carryRate)
+      return (
+        <section>
+          <h3 className={L.section}>재고 회전율 및 비용</h3>
+          <div className={L.grid3}>
+            <Num label="매출원가(COGS)" value={cogs} onChange={setC} />
+            <Num label="평균 재고액" value={avgInv} onChange={setI} />
+            <Num label="재고 보유비용율(%)" value={carryRate} onChange={setR} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">회전율</div><div className={L.kpi}>{fmtInt(turnover)} 회/년</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">재고일수(DIO)</div><div className={L.kpi}>{fmtInt(dio)} 일</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">보유비용(연)</div><div className={L.kpi}>{fmtKRW(carryCost)}</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 7) 종합소득세 예상(간이) =====
+    function CalcIncomeTax(){
+      const [taxable,setTaxable]=useState(50000000)
+      const [localRate,setLocal]=useState(10) // 지방소득세(국세의 10%)
+      // 간이 누진세율표(일반적으로 사용되는 구간 예시)
+      const brackets = [
+        {upTo: 12000000, rate: 0.06, quick: 0},
+        {upTo: 46000000, rate: 0.15, quick: 1080000},
+        {upTo: 88000000, rate: 0.24, quick: 5220000},
+        {upTo: 150000000, rate: 0.35, quick: 14900000},
+        {upTo: 300000000, rate: 0.38, quick: 19400000},
+        {upTo: 500000000, rate: 0.40, quick: 25400000},
+        {upTo: 1000000000, rate: 0.42, quick: 35400000},
+      ]
+      const topRate = 0.45; const topQuick= 65400000;
+      const calcNat = (x)=>{
+        for(const b of brackets){ if(x<=b.upTo) return x*b.rate - b.quick }
+        return x*topRate - topQuick
+      }
+      const nat = Math.max(0, calcNat(taxable))
+      const local = nat*pct(localRate)
+      const total = nat+local
+      return (
+        <section>
+          <h3 className={L.section}>종합소득세 예상(간이)</h3>
+          <div className={L.grid3}>
+            <Num label="과세표준(원)" value={taxable} onChange={setTaxable} />
+            <Num label="지방소득세 비율(국세의 %)" value={localRate} onChange={setLocal} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">국세(간이)</div><div className={L.kpi}>{fmtKRW(nat)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">지방소득세</div><div className={L.kpi}>{fmtKRW(local)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">합계</div><div className={L.kpi}>{fmtKRW(total)}</div><div className="text-xs text-gray-500">공제/감면 미반영 간이 추정</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 8) 부가가치세 예상 =====
+    function CalcVAT(){
+      const [sales,setS]=useState(10000000)
+      const [purchases,setP]=useState(4000000)
+      const [rate,setR]=useState(10)
+      const outVAT = sales*pct(rate)
+      const inVAT = purchases*pct(rate)
+      const payable = outVAT - inVAT
+      return (
+        <section>
+          <h3 className={L.section}>부가가치세 예상</h3>
+          <div className={L.grid3}>
+            <Num label="매출(부가세 별도)" value={sales} onChange={setS} />
+            <Num label="매입(부가세 별도)" value={purchases} onChange={setP} />
+            <Num label="세율(%)" value={rate} onChange={setR} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">매출세액</div><div className={L.kpi}>{fmtKRW(outVAT)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">매입세액</div><div className={L.kpi}>{fmtKRW(inVAT)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">납부(환급)세액</div><div className={L.kpi}>{fmtKRW(payable)}</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 9) 4대보험료 계산(간이) =====
+    function CalcFourIns(){
+      const [monthly,setM]=useState(2500000)
+      const [npEmp,setNpE]=useState(4.5), [npEr,setNpR]=useState(4.5)
+      const [hiEmp,setHiE]=useState(3.545), [hiEr,setHiR]=useState(3.545)
+      const [ltc,setLtc]=useState(12.81) // 건보의 %
+      const [eiEmp,setEiE]=useState(0.8), [eiEr,setEiR]=useState(1.05)
+      const npEmpAmt = monthly*pct(npEmp), npErAmt=monthly*pct(npEr)
+      const hiEmpAmt = monthly*pct(hiEmp)*(1+pct(ltc)), hiErAmt=monthly*pct(hiEr)*(1+pct(ltc))
+      const eiEmpAmt = monthly*pct(eiEmp), eiErAmt=monthly*pct(eiEr)
+      const empTotal=npEmpAmt+hiEmpAmt+eiEmpAmt
+      const erTotal=npErAmt+hiErAmt+eiErAmt
+      return (
+        <section>
+          <h3 className={L.section}>4대보험료 계산(간이)</h3>
+          <div className={L.grid3}>
+            <Num label="월 보수" value={monthly} onChange={setM} />
+            <Num label="국민연금 근로자 %" value={npEmp} onChange={setNpE} />
+            <Num label="국민연금 사용자 %" value={npEr} onChange={setNpR} />
+            <Num label="건강보험 근로자 %" value={hiEmp} onChange={setHiE} />
+            <Num label="건강보험 사용자 %" value={hiEr} onChange={setHiR} />
+            <Num label="장기요양(건보의 %)" value={ltc} onChange={setLtc} />
+            <Num label="고용보험 근로자 %" value={eiEmp} onChange={setEiE} />
+            <Num label="고용보험 사용자 %" value={eiEr} onChange={setEiR} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">근로자 부담 합계</div><div className={L.kpi}>{fmtKRW(empTotal)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">사용자 부담 합계</div><div className={L.kpi}>{fmtKRW(erTotal)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">총 부담(월)</div><div className={L.kpi}>{fmtKRW(empTotal+erTotal)}</div><div className="text-xs text-gray-500">정확 비율은 해별·업종별 상이, 입력값으로 조정</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 10) 매출 증가 추정(테이블오더) =====
+    function CalcSalesLift(){
+      const [sessions,setS]=useState(3000)
+      const [cr0,setC0]=useState(5)
+      const [aov0,setA0]=useState(15000)
+      const [cr1,setC1]=useState(6.5)
+      const [aov1,setA1]=useState(16500)
+      const orders0 = sessions*pct(cr0)
+      const orders1 = sessions*pct(cr1)
+      const sales0 = orders0*aov0
+      const sales1 = orders1*aov1
+      const lift = sales1 - sales0
+      const liftPct = sales0>0? (lift/sales0) : 0
+      return (
+        <section>
+          <h3 className={L.section}>매출 증가 추정(테이블오더 도입)</h3>
+          <div className={L.grid3}>
+            <Num label="세션/방문 수" value={sessions} onChange={setS} />
+            <Num label="도입 전 전환율(%)" value={cr0} onChange={setC0} />
+            <Num label="도입 전 객단가" value={aov0} onChange={setA0} />
+            <Num label="도입 후 전환율(%)" value={cr1} onChange={setC1} />
+            <Num label="도입 후 객단가" value={aov1} onChange={setA1} />
+          </div>
+          <div className={L.kgrid+" mt-3"}>
+            <div className={L.card}><div className="text-gray-500 text-sm">도입 전 매출</div><div className={L.kpi}>{fmtKRW(sales0)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">도입 후 매출</div><div className={L.kpi}>{fmtKRW(sales1)}</div></div>
+            <div className={L.card}><div className="text-gray-500 text-sm">증가액 / 증가율</div><div className={L.kpi}>{fmtKRW(lift)} / {fmtPct(liftPct)}</div></div>
+          </div>
+        </section>
+      )
+    }
+
+    // ===== 메인: 카테고리 및 섹션 구성 =====
+    function App(){
+      const [tab,setTab]=useState('all')
+      const Tab = ({id,label})=> (
+        <button className={("px-3 py-1 rounded-full border "+(tab===id?"bg-blue-600 text-white border-blue-600":"bg-white text-gray-700 border-gray-200")) + " text-sm"} onClick={()=>setTab(id)}>{label}</button>
+      )
+      return (
+        <div>
+          <div className="flex items-center justify-between">
+            <h1 className={L.h1}>사장님의 경영 파트너, 자영업 계산기</h1>
+            <div className="flex gap-2">
+              <Tab id="all" label="전체" />
+              <Tab id="sales" label="매출" />
+              <Tab id="cost" label="비용" />
+              <Tab id="eff" label="효율성" />
+            </div>
+          </div>
+          <p className="text-gray-600 mt-1">매출은 올리고 비용은 줄이는 경영 인사이트를 숫자로 확인하세요.</p>
+
+          {(tab==='all' || tab==='cost') && <CalcWeeklyHoliday/>}
+          {(tab==='all' || tab==='cost') && <CalcMinWageLabor/>}
+          {(tab==='all' || tab==='cost') && <CalcSeverance/>}
+          {(tab==='all' || tab==='cost') && <CalcFourIns/>}
+          {(tab==='all' || tab==='sales') && <CalcBEP/>}
+          {(tab==='all' || tab==='sales') && <CalcMarginPricing/>}
+          {(tab==='all' || tab==='eff') && <CalcInventory/>}
+          {(tab==='all' || tab==='cost') && <CalcVAT/>}
+          {(tab==='all' || tab==='sales') && <CalcSalesLift/>}
+
+          <div className="mt-8 text-xs text-gray-500 leading-6">
+            <div className="font-semibold mb-2">고지</div>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>세율/보험요율/최저임금 등은 연도별로 변동됩니다. 본 도구는 간이 추정을 돕는 참고용이며, 입력 칸에서 최신 값을 반영해 사용하세요.</li>
+              <li>정확한 세무/노무 판단은 전문가 자문을 권장합니다.</li>
+            </ul>
+          </div>
+        </div>
+      )
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'))
+    root.render(<App />)
+  </script>
+</body>
+</html>
